@@ -1,2 +1,2 @@
 # CMC-computer-graphics
-Машграф
+
