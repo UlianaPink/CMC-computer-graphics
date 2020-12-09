@@ -1,6 +1,5 @@
 #include <iostream>
 #include <fstream>
-#include <GLFW/glfw3.h>
 
 class Color {
 public:
@@ -96,56 +95,80 @@ public:
 	}
 };
 
-class PointLight {
+float Scalar(const Pos a, const Pos b) {
+	return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+class LightSource {
 protected:
-	float intensity;
-	Pos pos;
+	int type; //0 for point light, 1 for directional light
+	Pos lightPos;
+	float intense;
 
 public:
-	PointLight(float i, Pos position) {
-		intensity = i;
-		pos = position;
+	LightSource(int _type, Pos _lightPos, float _intense) {
+		type = _type;
+		lightPos = _lightPos;
+		intense = _intense;
 	}
 
-	PointLight() {
-		intensity = 0;
-		Pos pos(0, 0, 0);
+	LightSource() {
+		type = 0;
+		Pos lightPos;
+		intense = 0;
 	}
 
-	PointLight(const PointLight& a) {
-		intensity = a.intensity;
-		pos = a.pos;
+	LightSource(const LightSource& a) {
+		type = a.type;
+		lightPos = a.lightPos;
+		intense = a.intense;
 	}
 
-	~PointLight() {};
+	~LightSource() {};
 
-	float getI() {
-		return intensity;
+	int getType() {
+		return type;
 	}
 
 	Pos getPos() {
-		return pos;
+		return lightPos;
+	}
+
+	float getI() {
+		return intense;
 	}
 };
 
-class Sphere {
+class GraphObject {
+public:
+	Color color;
+
+	GraphObject() {};
+
+	virtual ~GraphObject() {};
+
+	virtual Color getColor() const = 0;
+
+	virtual float intersect(Pos& camPos, Pos& ray) const = 0;
+};
+
+class Sphere : public GraphObject {
 protected:
 	float radius;
-	float sparkling;
-	Color color;
+	int specular;
 	Pos centerPos;
 
 public:
-	Sphere(float r, float s,  Color c, Pos p) {
+	Sphere(float r, int s, Color c, Pos p) {
 		radius = r;
-		sparkling = s;
+		specular = s;
 		color = c;
 		centerPos = p;
 	}
 
 	Sphere() {
 		radius = 0;
-		sparkling = 0;
+		specular = 0;
 		color.r = 0;
 		color.g = 0;
 		color.b = 0;
@@ -154,28 +177,56 @@ public:
 
 	Sphere(const Sphere& a) {
 		radius = a.radius;
-		sparkling = a.sparkling;
+		specular = a.specular;
 		color = a.color;
 		centerPos = a.centerPos;
 	}
 
 	~Sphere() {};
 
-	float getRad() {
+	float getRadius() {
 		return radius;
 	}
 
-	float getS() {
-		return sparkling;
+	int getSpecular() {
+		return specular;
 	}
 
-	Color getColor() {
+	Color getColor() const {
 		return color;
 	}
 
-	Pos getPos() {
+	Pos getCenter() {
 		return centerPos;
 	}
+
+	float intersect(Pos& camPos, Pos& ray) const {
+		Pos toCentre = camPos - centerPos;
+		
+		float c1 = Scalar(ray, ray);
+		float c2 = (2 * Scalar(toCentre, ray));
+		float c3 = Scalar(toCentre, toCentre) - radius * radius;
+		float discr = c2 * c2 - 4 * c1 * c3;
+		
+		if (discr < 0) {
+			return -1;
+		}
+		
+		float t = (-c2 + sqrt(discr)) / (2 * c1);
+		if (t > (-c2 - sqrt(discr)) / (2 * c1)) {
+			t = (-c2 - sqrt(discr)) / (2 * c1);
+		}
+		
+		return t;
+	}
+};
+
+class Plane : public GraphObject {
+
+};
+
+class Triangle : public GraphObject {
+
 };
 
 class Image {
@@ -188,12 +239,12 @@ public:
 	Image(int w, int h) {
 		width = w;
 		height = h;
-		int bufSize = w * h;
-		pixelData = new Color[bufSize];
-		Color white(255, 255, 255);
-		for (int i = 0; i < bufSize; i++) {
-			pixelData[i] = white;
-		}
+int bufSize = w * h;
+pixelData = new Color[bufSize];
+Color white(255, 255, 255);
+for (int i = 0; i < bufSize; i++) {
+	pixelData[i] = white;
+}
 	}
 
 	Image(const Image& a) {
@@ -245,77 +296,107 @@ public:
 	}
 };
 
-float Scalar(const Pos a, const Pos b) {
-	return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
 float Length(const Pos a) {
 	return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
 }
 
-void SimpleRender(Image& image, Sphere& sphere, PointLight& light) {
-	int pointer = 0;
-	Pos null;
-	Pos camPos;
-	Pos canvasPos;
-	Pos onSurfacePos;
-	Pos normToSphere;
-	Pos lightDirect;
-	Pos toCentre;
-	Pos vectorV;
-	Pos reflection;
-	float distance = (float)(image.getW() + image.getH()) / 2;
-	float c1, c2, c3, t, discr, intense, n, r;
-	Color black;
-	Color onSurfColor;
+Sphere* CheckForIntersect(float& t, Sphere* array, Pos camPos, Pos ray, float tMin, float tMax) {
+	Sphere* closestSphere = nullptr;
+	float tempT;
+	float closestT = 100000;
 
-	toCentre = camPos - sphere.getPos();
+	for (int i = 0; i < 4; i++) {
+		tempT = array[i].intersect(camPos, ray);
+		if (tempT != -1) {
+			if ((tempT > tMin) && (tempT < tMax) && (tempT < closestT)) {
+				closestT = tempT;
+				closestSphere = &array[i];
+			}
+		}
+	}
+
+	t = closestT;
+	return closestSphere;
+}
+
+float ComputeLight(LightSource* arrayL, Sphere* array, Pos onSurf, Pos normal, Pos minusRay, Sphere* closestSphere) {
+	float n, r, intense = 0;
+	float shadowT;
+	Pos lightDirect, refection;
+	Pos null;
+	Sphere* shadowSphere = nullptr;
+
+	for (int i = 0; i < 2; i++) {
+		if (arrayL[i].getType() == 1) {
+			//direct light
+			lightDirect = arrayL[i].getPos();
+		}
+		else {
+			//point light
+			lightDirect = arrayL[i].getPos() - onSurf;
+		}
+
+		//shadow
+		shadowSphere = CheckForIntersect(shadowT, array, onSurf, lightDirect, 0, 100000);
+		if (shadowSphere != nullptr) {
+			continue;
+		}
+		
+		//diffuse light
+	    n = Scalar(normal, lightDirect);
+		if (n > 0) {
+			intense += arrayL[i].getI() * n / (Length(normal) * Length(lightDirect));
+		}
+
+		//sparkling
+		if ((closestSphere->getSpecular() != 0)) {
+			Pos reflection = normal * (2 * n) - lightDirect;
+			r = Scalar(reflection, minusRay);
+			if (r > 0) {
+				intense += arrayL[i].getI() * pow((r / (Length(reflection) * Length(minusRay))), closestSphere->getSpecular());
+			}
+		}
+	}
+
+	if (intense > 0.8) {
+		intense = 0.8;
+	}
+
+	return intense;
+}
+
+Color ColorToPut(float ambientLight, Pos& camPos, Pos& ray, Sphere* array, LightSource* arrayL) {
+	float closestT;
+	Color black;
+	Sphere* closestSphere;
+	Pos null;
+
+	closestSphere = CheckForIntersect(closestT, array, camPos, ray, 0, 100000);
+
+	if (closestSphere == nullptr) {
+		return black;
+	}
+	
+	Pos onSurf = camPos + ray * closestT;
+	Pos normal = onSurf - closestSphere->getCenter();
+	normal = normal * (1 / Length(normal));
+
+	return closestSphere->getColor() * (ComputeLight(arrayL, array, onSurf, normal, null - ray, closestSphere) + ambientLight);
+}
+
+void SimpleRender(Image& image, Sphere* array, LightSource* arrayL) {
+	int pointer = 0;
+	float ambientLight = 0.2f;
+	Pos camPos;
+
+	float distance = (float)(image.getW() + image.getH()) / 2;
 
 	for (int y = -(image.getH() / 2); y < image.getH() / 2; y++) {
 		for (int x = -(image.getW() / 2); x < image.getW() / 2; x++) {
-			canvasPos.x = (float)(x);
-			canvasPos.y = (float)(y);
-			canvasPos.z = distance;
 
-			c1 = Scalar(canvasPos, canvasPos);
-			c2 = 2 * Scalar(toCentre, canvasPos);
-			c3 = Scalar(toCentre, toCentre) - sphere.getRad() * sphere.getRad();
-			discr = c2 * c2 - 4 * c1 * c3;
-
-			if (discr < 0) {
-				image.putPixel(black, pointer);
-			}
-			else { //ITERSECTION
-				t = (-c2 - sqrt(discr)) / (2 * c1);
-				onSurfacePos = camPos + canvasPos * t;
-				normToSphere = onSurfacePos - sphere.getPos();
-				normToSphere = normToSphere * (1 / Length(normToSphere));
-
-				intense = 0;
-				lightDirect = light.getPos() - onSurfacePos;
-				n = Scalar(normToSphere, lightDirect);
-				if (n > 0) {
-					intense += light.getI() * n / (Length(normToSphere) * Length(lightDirect));
-				}
-
-				if (sphere.getS() != -1) {
-					vectorV = null - canvasPos;
-					reflection = (normToSphere * (2 * n) - lightDirect);
-					r = Scalar(reflection, vectorV);
-					if (r > 0) {
-						intense += light.getI() * pow(r / (Length(reflection) * Length(vectorV)), sphere.getS());
-					}
-				}
-
-				intense += 0.03;
-
-				if (intense > 1) {
-					intense = 1;
-				}
-
-				onSurfColor = sphere.getColor() * intense;
-				image.putPixel(onSurfColor, pointer);
-			}
+			Pos newRay((float)(x), -(float)(y), distance);
+			
+			image.putPixel(ColorToPut(ambientLight, camPos, newRay, array, arrayL), pointer);
 
 			pointer++;
 		}
@@ -327,14 +408,39 @@ int main()
 	Image image(1920, 1080);
 
 	Color blue(175, 240, 240);
-	Pos center((float)(0), (float)(0), (float)(2000));
-	Sphere sphere((float)(300), (float)(300), blue, center);
-	Pos lightPos((float)(1000), (float)(-50), (float)(1500));
-	PointLight light(0.9, lightPos);
+	Color pink(255, 192, 203);
+	Color yellow(255, 253, 208);
+	Color white(255, 255, 255);
+
+	Pos center1((float)(0), (float)(0), (float)(2000));
+	Pos center2((float)(-700), (float)(50), (float)(1700));
+	Pos center3((float)(400), (float)(-50), (float)(3000));
+	Pos center4((float)(-100), (float)(-700), (float)(2200));
+
+	Pos light1((float)(0), (float)(300), (float)(1600));
+	Pos light2((float)(-300), (float)(300), (float)(2000));
+
+	Sphere blueSphere((float)(300), 10, blue, center1);
+	Sphere pinkSphere((float)(300), 500, pink, center2);
+	Sphere yellowSphere((float)(300), 1000, yellow, center3);
+	Sphere whiteSphere((float)(500), 1000, white, center4);
+
+	LightSource rightPointLight(0, light1, (float)(0.6));
+	LightSource leftPointLight(0, light2, (float)(0.2));
+
+	Sphere* array = new Sphere[4];
+	array[0] = blueSphere;
+	array[1] = pinkSphere;
+	array[2] = yellowSphere;
+	array[3] = whiteSphere;
+
+	LightSource* arrayOfLight = new LightSource[2];
+	arrayOfLight[0] = rightPointLight;
+	arrayOfLight[1] = leftPointLight;
 
 	std::cout << "rendering...\n";
-
-	SimpleRender(image, sphere, light);
+	
+	SimpleRender(image, array, arrayOfLight);
 
 	std::cout << "puting in file...\n";
 
