@@ -109,42 +109,49 @@ float Scalar(const Pos a, const Pos b) {
 }
 
 class LightSource {
-protected:
-	int type; //0 for point light, 1 for directional light
-	Pos lightPos;
-	float intense;
-
 public:
-	LightSource(int _type, Pos _lightPos, float _intense) {
-		type = _type;
-		lightPos = _lightPos;
-		intense = _intense;
-	}
+	Pos left;
+	Pos right;
+	float intense;
+	int steps = 30;
+	float portionOfIntense;
+	Pos* lightPoses;
 
-	LightSource() {
-		type = 0;
-		Pos lightPos;
-		intense = 0;
+	LightSource(Pos _left, Pos _right, float _intense) {
+		left = _left;
+		right = _right;
+		intense = _intense;
+		portionOfIntense = intense / ((float)(steps));
+		lightPoses = new Pos[steps];
+		float t = 0.0f;
+		for (int i = 0; i < steps; i++) {
+			lightPoses[i] = left + (right - left) * t;
+			t += 0.033333;
+		}
 	}
 
 	LightSource(const LightSource& a) {
-		type = a.type;
-		lightPos = a.lightPos;
+		left = a.left;
+		right = a.right;
 		intense = a.intense;
+		steps = a.steps;
+		portionOfIntense = a.portionOfIntense;
+		lightPoses = new Pos[steps];
+		for (int i = 0; i < steps; i++) {
+			lightPoses[i] = a.lightPoses[i];
+		}
 	}
 
-	~LightSource() {};
-
-	int getType() {
-		return type;
+	~LightSource() {
+		delete[] lightPoses;
 	}
 
-	Pos getPos() {
-		return lightPos;
+	Pos getLight(int i) {
+		return lightPoses[i];
 	}
 
 	float getI() {
-		return intense;
+		return portionOfIntense;
 	}
 };
 
@@ -434,17 +441,17 @@ Pos ReflectRay(Pos ray, Pos normal) {
 	return normal * (2 * Scalar(normal, ray)) - ray;
 }
 
-float ComputeLight(LightSource* arrayL, GraphObject** array, Pos onSurf, Pos normal, Pos minusRay, GraphObject* closestObj) {
+float ComputeLight(LightSource& longLight, GraphObject** array, Pos onSurf, Pos normal, Pos minusRay, GraphObject* closestObj) {
 	float n, r, intense = 0;
 	float shadowT;
 	Pos lightDirect, refection;
 	Pos null;
 	GraphObject* shadowObj = nullptr;
 
-	for (int i = 0; i < 2; i++) {
-		lightDirect = arrayL[i].getPos() - onSurf;
+	for (int i = 0; i < longLight.steps; i++) {
+		lightDirect = longLight.getLight(i) - onSurf;
 		lightDirect.normalize();
-
+		
 		//shadow
 		shadowObj = CheckForIntersect(shadowT, array, onSurf, lightDirect, 0.1, 1000000);
 		if (shadowObj != nullptr) {
@@ -454,7 +461,7 @@ float ComputeLight(LightSource* arrayL, GraphObject** array, Pos onSurf, Pos nor
 		//diffuse light
 	    n = Scalar(normal, lightDirect);
 		if (n > eps) {
-			intense += arrayL[i].getI() * n / (Length(normal) * Length(lightDirect));
+			intense += longLight.getI() * n / (Length(normal) * Length(lightDirect));
 		}
 
 		//sparkling
@@ -463,7 +470,7 @@ float ComputeLight(LightSource* arrayL, GraphObject** array, Pos onSurf, Pos nor
 			reflection.normalize();
 			r = Scalar(reflection, minusRay);
 			if (r > eps) {
-				intense += arrayL[i].getI() * pow((r / (Length(reflection) * Length(minusRay))), closestObj->getSpecular());
+				intense += longLight.getI() * pow((r / (Length(reflection) * Length(minusRay))), closestObj->getSpecular());
 			}
 		}
 	}
@@ -475,7 +482,7 @@ float ComputeLight(LightSource* arrayL, GraphObject** array, Pos onSurf, Pos nor
 	return intense;
 }
 
-Color ColorToPut(float ambientLight, Pos& camPos, Pos& ray, GraphObject** array, LightSource* arrayL, float depth) {
+Color ColorToPut(float ambientLight, Pos& camPos, Pos& ray, GraphObject** array, LightSource& longLight, float depth) {
 	float closestT;
 	float i;
 	Color black;
@@ -494,7 +501,7 @@ Color ColorToPut(float ambientLight, Pos& camPos, Pos& ray, GraphObject** array,
 	Pos normal = closestObj->getNormal(onSurf);
 	normal.normalize();
 
-	tempColor = closestObj->getColor() * (ComputeLight(arrayL, array, onSurf, normal, null - ray, closestObj) + ambientLight);
+	tempColor = closestObj->getColor() * (ComputeLight(longLight, array, onSurf, normal, null - ray, closestObj) + ambientLight);
 
 	if ((depth <= 0) || (closestObj->getRef() < 0)) {
 		return tempColor;
@@ -502,14 +509,14 @@ Color ColorToPut(float ambientLight, Pos& camPos, Pos& ray, GraphObject** array,
 	
 	refRay = ReflectRay(null - ray, normal);
 
-	reflectedColor = ColorToPut(ambientLight, onSurf, refRay, array, arrayL, depth - (float)(1));
+	reflectedColor = ColorToPut(ambientLight, onSurf, refRay, array, longLight, depth - (float)(1));
 	
 	return tempColor * (1 - closestObj->getRef()) + reflectedColor * (closestObj->getRef());
 }
 
-void SimpleRender(Image& image, GraphObject** array, LightSource* arrayL) {
+void SimpleRender(Image& image, GraphObject** array, LightSource& longLight) {
 	int pointer = 0;
-	float anti = 1;
+	float anti = 0.3f;
 	float ambientLight = 0.2f;
 	Color totalColor, tempColor;
 	float r, g, b;
@@ -530,7 +537,7 @@ void SimpleRender(Image& image, GraphObject** array, LightSource* arrayL) {
 
 					Pos newRay(newX, -newY, distance);
 					newRay.normalize();
-					tempColor = ColorToPut(ambientLight, camPos, newRay, array, arrayL, depth);
+					tempColor = ColorToPut(ambientLight, camPos, newRay, array, longLight, depth);
 					r += tempColor.r * anti*anti;
 					g += tempColor.g * anti*anti;
 					b += tempColor.b * anti*anti;
@@ -550,7 +557,7 @@ void SimpleRender(Image& image, GraphObject** array, LightSource* arrayL) {
 
 int main()
 {
-	Image image(1920, 1080);
+	Image image(1500, 1000);
 
 	Color blue(175, 240, 240);
 	Color white(255, 255, 255);
@@ -560,28 +567,24 @@ int main()
 	Pos center1((float)(-500), (float)(-100), (float)(2500));
 	Pos center2((float)(500), (float)(-100), (float)(2500));
 	Pos normal(0, 1.0f, 0);
-	Pos light1((float)(0), (float)(500), (float)(1600));
+	Pos light1((float)(-300), (float)(500), (float)(1600));
 	Pos light2(300.0, 500.0, 1600.0);
 
-	Sphere blueSphere((float)(300), 1000, blue, center1, (float)(0.9));
+	Sphere blueSphere((float)(300), 1000, blue, center1, (float)(1.0));
 	Sphere purpleSphere((float)(300), 1000, purple, center2, (float)(0.5));
 	Plane whitePlane(normal, 1000, white, (float)(400), (float)(-1.0));
 
-	LightSource rightPointLight(0, light1, 0.4);
-	LightSource rightPointLight2(0, light2, 0.4);
 
 	GraphObject** array = new GraphObject * [3];
 	array[0] = new Sphere(blueSphere);
 	array[1] = new Sphere(purpleSphere);
 	array[2] = new Plane(whitePlane);
 
-	LightSource* arrayOfLight = new LightSource[2];
-	arrayOfLight[0] = rightPointLight;
-	arrayOfLight[1] = rightPointLight2;
+	LightSource longLight(light1, light2, 0.5f);
 
 	std::cout << "rendering...\n";
 	
-	SimpleRender(image, array, arrayOfLight);
+	SimpleRender(image, array, longLight);
 
 	std::cout << "puting in file...\n";
 
