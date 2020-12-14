@@ -30,4 +30,4 @@ float anti = 1.0f;
 Этапы работы над сценой можно посмотреть в этом же репозитории, в ветках Update_1, Update_2 и Update_3
 (они выкладывались с 8 декабря)
 
-
+![Image alt](https://github.com/UlianaPink/CMC-computer-graphics/raw/master/final_render.png)
